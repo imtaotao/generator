@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>gen-ast</title>
+</head>
+<body>
+  <script>
+    let str = `
+    try {
+      var dd;
+      var a
+      var 🤣
+      var a = 1; 2+ 2
+      1 + 1
+      var c = function a () {
+        if () {} 
+        var d = 1212
+        1+1
+        var a
+        function () { 
+          var a = 1
+          () => console.log(tt)
+        }
+      }
+      () => {
+        1 + 2
+        function () {
+          1 + 'tt' 
+          () => 1
+        }
+      }
+      var tt
+      var b = yield new Promise(((re) => {});
+    } catch {
+      var tt
+      yield 212
+    }
+
+    for (var i = 0; i < 5; i++) {
+      yield i
+    }
+    () => 'taotao'
+    `
+    function getVar (astUnit) {
+      let { expre } = astUnit
+      copyExpre = filterInsertFunVar(expre)
+      
+      const vars = []
+      const reg = /var\s([^=\n\s]*)((\s*=\s*)|\s*;?)/g
+      let res
+
+      while (res = reg.exec(copyExpre)) {
+        const varUnit = { varExpre: res[0].trim() }
+        const l = res[1].length - 1
+        const argExpre = new RegExp(`(?<=${res[0].trim()})[\\s\\S]*`).exec(expre)
+        let arg
+          
+        // 如果是 var x; 这种形式
+        if (!res[2].includes('=')) {
+          varUnit.varName = res[1].includes(';')
+            ? res[1].substring(0, l)
+            : res[1]
+        
+          if (argExpre) {
+            argExpre[0] = ';' + argExpre[0]
+          }
+        } else {
+          varUnit.varName = res[1]
+        }
+        
+        if (argExpre && argExpre[0]) {
+          arg = getUnitExpression(argExpre[0])
+          !arg && (arg = undefined)
+        }
+        
+        varUnit.value = arg
+        vars.push(varUnit)
+      }
+
+      console.log(vars);
+
+      // 我们只拿第一层函数作用域的变量
+      function filterInsertFunVar (expre) {
+        let funs = getFun(expre, /function.*\(\)\s*{/g)
+        funs = funs.concat(getFun(expre, /\(\)\s*=>\s({)?/g, true))
+        return filterExcess(funs)
+      
+        
+        // 拿到所有的函数后，过滤，我们只保留最一层的函数
+        function filterExcess (funs) {
+          let deleteIndexs = []
+
+          for (let i = 0; i < funs.length; i++) {
+            for (let j = 0; j < funs.length; j++) {
+              // 如果对比的是自己或者已经被标记为不合适的函数，就直接跳过
+              if (i === j || deleteIndexs.includes(j)) continue
+
+              // 如果长函数包含短一点的函数
+              if (funs[j].includes(funs[i]) && !deleteIndexs.includes(i)) {
+                deleteIndexs.push(i)
+              }
+            }
+          }
+          
+          for (let i = 0; i < funs.length; i++) {
+            // 如果是最外层的函数
+            if(!deleteIndexs.includes(i)) { 
+              expre = expre.replace(funs[i], '')
+            }
+          }
+          
+          return expre
+        }
+
+        function getFun (str, reg, isArrow) {
+          const arr = []
+          let res
+          
+          while(res = reg.exec(str)) {
+            if (res[0]) {
+              // 如果是不是（）=> xx 的方式的箭头函数
+              const simpleArrow = isArrow && !res[1]
+              const remaining = str.substring(res.index + res[0].length)
+              // 正常带 {} 的函数需要做处理，传 ture
+              const funBody = res[0] + getUnitExpression(remaining, !simpleArrow)
+              
+              arr.push(funBody)
+            }
+          }
+          return arr
+        }
+      }
+    }
+
+    function getUnitExpression (expre, isGetFun) {
+      let currentScope = 1
+      let str = ''
+
+      for (const s of expre) {
+        if (currentScope === 1 && isEndStr(s)) {
+          isGetFun && (str += s)
+          break
+        }
+        if (!currentScope && !haveKeyword(str)) {
+          if (isEndStr(s)) {
+            isGetFun && (str += s)
+            break
+          }
+        }
+        setScope(s)
+        str += s
+      }
+
+      function setScope (s) {
+        if (s === '(' || s === '{') currentScope++
+        if (s === '(' || s === '}') currentScope--
+      }
+
+      function haveKeyword (str) {
+        const keyword = ['function', 'do', 'if', 'switch', 'try', 'catch', 'finally', 'else', 'while', 'with', 'for']
+        for (const key of keyword) {
+          if (str.includes(key)) return true
+        }
+        return false
+      }
+
+      function isEndStr (s) {
+        if(isGetFun) return /}/.test(s)
+        return /[;\n]/.test(s)
+      }
+      
+      return str
+    }
+
+    function exec () {
+      const astUnit = {}
+      const yieldReg = /(try\s*{?)?((?!yield)[\s\S])*(yield\s+)/
+      const match = yieldReg.exec(str)
+
+      if (match && match[0]) {
+        advance(match[0].length)
+        const arg = getUnitExpression(str)
+        const expre = match[0] + arg
+        advance(arg.length)
+        if (str.trim()[0] === ';') advance(1)
+
+        astUnit.isTry = /try/.test(match[0])
+        astUnit.expre = expre.trim()
+        astUnit.arg = arg
+        getVar(astUnit)
+      }
+    }
+
+    function advance (n) {
+      str = str.substring(n)
+    }
+
+    exec()
+  </script>
+</body>
+</html>

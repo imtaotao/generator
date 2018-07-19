@@ -8,134 +8,145 @@
 </head>
 <body>
   <script>
-    let str = `
+  function * a () {
+    1+1
+    a++
     try {
-      var dd;
-      var a
-      var 🤣
+      var dd, tt = "1212", c
       var a = 1; 2+ 2
       1 + 1
-      var c = function a () {
-        if () {} 
+      var c = function* a () {
         var d = 1212
         1+1
         var a
-        function () { 
-          var a = 1
+        yield 'fang'
+        function b () {
+          var a = 1;
           () => console.log(tt)
         }
       }
+      var 测试 = abc => 1;
       () => {
         1 + 2
-        function () {
-          1 + 'tt' 
-          () => 1
+        function cc () {
+          1 + 'tt'
         }
       }
+      yield 'tata'
+      yield _ => {
+        try {1}
+        catch (e) {}
+      }
+
       var tt
-      var b = yield new Promise(((re) => {});
-    } catch {
+      var b = yield new Promise(() => {
+        var tt = 122222
+      })
+
+      1 + 1
+    }
+    catch (error) {
       var tt
-      yield 212
+      var aaf = _ => { var abc = 121 }
+      var abgar = yield 212
+    }
+  }
+    // 我们只拿第一层函数
+    function filterInsertFun (field) {
+      // 得到普通函数
+      let funs = getFun(field, /function.*\(.*\)\s*{/g)
+      // 得到箭头函数
+      funs = funs.concat(getFun(field, /(\(\s*)?[^\s;,\()]*\s*(\))?\s*=>\s({)?/g, true))
+      return filterExcess(funs)
+
+
+      // 拿到所有的函数后，过滤，我们只保留最一层的函数
+      function filterExcess (funs) {
+        let deleteIndexs = []
+
+        for (let i = 0; i < funs.length; i++) {
+          for (let j = 0; j < funs.length; j++) {
+            // 如果对比的是自己或者已经被标记为不合适的函数，就直接跳过
+            if (i === j || deleteIndexs.includes(j)) continue
+
+            // 如果长函数包含短一点的函数
+            if (funs[j].includes(funs[i]) && !deleteIndexs.includes(i)) {
+              deleteIndexs.push(i)
+            }
+          }
+        }
+
+        for (let i = 0; i < funs.length; i++) {
+          // 如果是最外层的函数
+          if(!deleteIndexs.includes(i)) {
+            field = field.replace(funs[i], '')
+          }
+        }
+
+        return field
+      }
+
+      function getFun (str, reg, isArrow) {
+        const arr = []
+        let res
+
+        while(res = reg.exec(str)) {
+          if (res[0]) {
+            // 如果是不是（）=> xx 的方式的箭头函数
+            const simpleArrow = isArrow && !res[1]
+            const remaining = str.substring(res.index + res[0].length)
+            // 正常带 {} 的函数需要做处理，传 ture
+            const funBody = res[0] + getUnitExpression(remaining, !simpleArrow)
+
+            arr.push(funBody)
+          }
+        }
+        return arr
+      }
     }
 
-    for (var i = 0; i < 5; i++) {
-      yield i
-    }
-    () => 'taotao'
-    `
+    // 拿到第一层变量
     function getVar (astUnit) {
-      let { expre } = astUnit
-      copyExpre = filterInsertFunVar(expre)
-      
-      const vars = []
-      const reg = /var\s([^=\n\s]*)((\s*=\s*)|\s*;?)/g
       let res
+      const vars = []
+      const field = astUnit.field
+      const reg = /(var|,)\s*([^=,\n\s]*)((\s*=\s*)|\s*;?)/g
+      const copyField = filterInsertFun(field)
 
-      while (res = reg.exec(copyExpre)) {
-        const varUnit = { varExpre: res[0].trim() }
-        const l = res[1].length - 1
-        const argExpre = new RegExp(`(?<=${res[0].trim()})[\\s\\S]*`).exec(expre)
-        let arg
-          
-        // 如果是 var x; 这种形式
-        if (!res[2].includes('=')) {
-          varUnit.varName = res[1].includes(';')
-            ? res[1].substring(0, l)
-            : res[1]
-        
-          if (argExpre) {
-            argExpre[0] = ';' + argExpre[0]
-          }
-        } else {
-          varUnit.varName = res[1]
+      while (res = reg.exec(copyField)) {
+        const argExpre = new RegExp(`(?<=${res[0].trim()})[\\s\\S]*`).exec(field)
+        vars.push(dealVarMatch(res, argExpre))
+      }
+
+      function dealVarMatch ([expre, declarator, name, assAymbol], argExpre) {
+        const l = declarator.length - 1
+        let value
+        let expression
+        let followYield
+
+        // 如果 varname 如果是 var x; 这种形式
+        if (!assAymbol.includes('=')) {
+          if (name.includes(';')) name = name.substring(0, l)
+          // 因为 var x; 值为 undefined, getUnitExpression 需要加个 ‘;’ 做标识符，代表立即结束，直接返回个 ''
+          if (argExpre) argExpre[0] = ';' + argExpre[0]
         }
-        
+
+        // 拿到 arg
         if (argExpre && argExpre[0]) {
-          arg = getUnitExpression(argExpre[0])
-          !arg && (arg = undefined)
+          value = getUnitExpression(argExpre[0], false, true) || undefined
         }
-        
-        varUnit.value = arg
-        vars.push(varUnit)
+
+        expression = expre.replace(declarator, '').trim() + (value || '')
+        followYield = !!value && value.trim().substring(0, 5) === 'yield'
+
+        return { expression, name, value, followYield }
       }
 
-      console.log(vars);
-
-      // 我们只拿第一层函数作用域的变量
-      function filterInsertFunVar (expre) {
-        let funs = getFun(expre, /function.*\(\)\s*{/g)
-        funs = funs.concat(getFun(expre, /\(\)\s*=>\s({)?/g, true))
-        return filterExcess(funs)
-      
-        
-        // 拿到所有的函数后，过滤，我们只保留最一层的函数
-        function filterExcess (funs) {
-          let deleteIndexs = []
-
-          for (let i = 0; i < funs.length; i++) {
-            for (let j = 0; j < funs.length; j++) {
-              // 如果对比的是自己或者已经被标记为不合适的函数，就直接跳过
-              if (i === j || deleteIndexs.includes(j)) continue
-
-              // 如果长函数包含短一点的函数
-              if (funs[j].includes(funs[i]) && !deleteIndexs.includes(i)) {
-                deleteIndexs.push(i)
-              }
-            }
-          }
-          
-          for (let i = 0; i < funs.length; i++) {
-            // 如果是最外层的函数
-            if(!deleteIndexs.includes(i)) { 
-              expre = expre.replace(funs[i], '')
-            }
-          }
-          
-          return expre
-        }
-
-        function getFun (str, reg, isArrow) {
-          const arr = []
-          let res
-          
-          while(res = reg.exec(str)) {
-            if (res[0]) {
-              // 如果是不是（）=> xx 的方式的箭头函数
-              const simpleArrow = isArrow && !res[1]
-              const remaining = str.substring(res.index + res[0].length)
-              // 正常带 {} 的函数需要做处理，传 ture
-              const funBody = res[0] + getUnitExpression(remaining, !simpleArrow)
-              
-              arr.push(funBody)
-            }
-          }
-          return arr
-        }
-      }
+       astUnit.vars = vars
     }
 
-    function getUnitExpression (expre, isGetFun) {
+    // 拿到表达式的工具方法
+    function getUnitExpression (expre, isGetFun, isGetVar) {
       let currentScope = 1
       let str = ''
 
@@ -169,36 +180,69 @@
 
       function isEndStr (s) {
         if(isGetFun) return /}/.test(s)
+        if (isGetVar) return /[,;\n]/.test(s)
         return /[;\n]/.test(s)
       }
-      
+
       return str
     }
 
-    function exec () {
-      const astUnit = {}
-      const yieldReg = /(try\s*{?)?((?!yield)[\s\S])*(yield\s+)/
-      const match = yieldReg.exec(str)
+    // function
+    function start (fun) {
+      let str = fun.toString().match(/^function\s*\*?\s*\w*\s*\([\w\s,]*\)\s*{([\s\S]*?)}$/)[1].trim()
+      if (!str) throw TypeError('fun must be a generator function')
 
-      if (match && match[0]) {
-        advance(match[0].length)
-        const arg = getUnitExpression(str)
-        const expre = match[0] + arg
-        advance(arg.length)
-        if (str.trim()[0] === ';') advance(1)
+      // let copyStr = filterInsertFun(str)
+      const advance = n => str = str.substring(n)
+      const keyword = '(yield|try|catch|finally)'
+      const createGenFunName = 'create'
+      const yieldReg = new RegExp(`((?!${keyword})(?!${createGenFunName})[\\s\\S])*${keyword}\\s*`);
+      console.log(yieldReg);
+      // /(try\s*{?)?((?!yield)[\s\S])*(yield\s+)/
+      const ast = []
 
-        astUnit.isTry = /try/.test(match[0])
-        astUnit.expre = expre.trim()
-        astUnit.arg = arg
-        getVar(astUnit)
+      function exec () {
+        str = str.trim()
+        const astUnit = Object.create(null)
+        const match = yieldReg.exec(str)
+
+        if (match && match[0]) {
+
+          advance(match[0].length)
+          const arg = getUnitExpression(str)
+          const expre = match[0] + arg
+          advance(arg.length)
+          if (str.trim()[0] === ';') advance(1)
+
+          const regStr = '(try|catch|finally)'
+          const isTry = new RegExp(`(?<!${regStr})${regStr}`).exec(match[0])
+          // const field = match[1]
+          //   ? expre.trim().replace(match[1], '').trim()
+          //   : expre.trim()
+
+          const field = expre
+          // 其实需要判断是哪一个
+          astUnit.isTry = !!isTry && isTry[0]
+          astUnit.field = field
+          astUnit.yieldArg = arg
+
+          // getVar(astUnit)
+          ast.push(astUnit)
+
+          return true
+        }
+        return false
       }
+
+      while(exec()) {}
+      // exec()
+      // exec()
+      // exec()
+      return ast
     }
 
-    function advance (n) {
-      str = str.substring(n)
-    }
-
-    exec()
+    const ast = start(a)
+    console.log(ast)
   </script>
 </body>
 </html>
